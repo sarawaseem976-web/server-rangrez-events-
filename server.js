@@ -21,7 +21,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-app.use("/api/events", eventRoutes);
+app.use("api/events", eventRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api", bookingRoutes);
 
