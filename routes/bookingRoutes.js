@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-dotenv.config();  // Required here also
+dotenv.config();
 
 import express from "express";
 import multer from "multer";
@@ -20,13 +20,8 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-console.log("Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME);
-console.log("API Key:", process.env.CLOUDINARY_API_KEY);
-console.log("API Secret:", process.env.CLOUDINARY_API_SECRET ? "Loaded" : "Missing");
-
-
 /* ----------------------------------------------------
-   MULTER MEMORY STORAGE (REQUIRED FOR VERCEL)
+   MULTER MEMORY STORAGE
 ---------------------------------------------------- */
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
@@ -43,7 +38,6 @@ const uploadBufferToCloudinary = (buffer, folder) => {
         resolve(result);
       }
     );
-
     Readable.from(buffer).pipe(stream);
   });
 };
@@ -63,30 +57,13 @@ router.post("/booking/create", upload.single("receiptImage"), async (req, res) =
       eventId,
     } = req.body;
 
-    if (!req.file) {
-      return res.status(400).json({ message: "Receipt image is required" });
-    }
+    if (!req.file) return res.status(400).json({ message: "Receipt image is required" });
+    if (!eventId) return res.status(400).json({ message: "eventId is required" });
 
-    if (!eventId) {
-      return res.status(400).json({ message: "eventId is required" });
-    }
+    const uploadResult = await uploadBufferToCloudinary(req.file.buffer, "receipts");
 
-    /* -----------------------------------------
-       Upload Receipt to Cloudinary
-    ----------------------------------------- */
-    const uploadResult = await uploadBufferToCloudinary(
-      req.file.buffer,
-      "receipts"
-    );
-
-    /* -----------------------------------------
-       Generate Ticket Number
-    ----------------------------------------- */
     const ticketNumber = Math.floor(100000 + Math.random() * 900000);
 
-    /* -----------------------------------------
-       Save Booking
-    ----------------------------------------- */
     const newBooking = new Booking({
       firstName,
       lastName,
@@ -101,10 +78,7 @@ router.post("/booking/create", upload.single("receiptImage"), async (req, res) =
 
     await newBooking.save();
 
-    res.status(201).json({
-      message: "Booking created successfully",
-      booking: newBooking,
-    });
+    res.status(201).json({ message: "Booking created successfully", booking: newBooking });
   } catch (error) {
     console.error("Booking Create Error:", error);
     res.status(500).json({ message: "Booking failed", error });
@@ -116,10 +90,7 @@ router.post("/booking/create", upload.single("receiptImage"), async (req, res) =
 ---------------------------------------------------- */
 router.get("/booking", async (req, res) => {
   try {
-    const bookings = await Booking.find()
-      .populate("eventId")
-      .sort({ createdAt: -1 });
-
+    const bookings = await Booking.find().populate("eventId").sort({ createdAt: -1 });
     res.json(bookings);
   } catch (error) {
     console.error(error);
@@ -133,10 +104,7 @@ router.get("/booking", async (req, res) => {
 router.get("/booking/:id", async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id).populate("eventId");
-
-    if (!booking)
-      return res.status(404).json({ message: "Booking not found" });
-
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
     res.json(booking);
   } catch (error) {
     console.error(error);
@@ -150,8 +118,7 @@ router.get("/booking/:id", async (req, res) => {
 router.delete("/booking/:id", async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
-    if (!booking)
-      return res.status(404).json({ message: "Booking not found" });
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
 
     await booking.deleteOne();
     res.json({ message: "Booking deleted successfully" });
@@ -167,26 +134,13 @@ router.delete("/booking/:id", async (req, res) => {
 router.put("/booking/update-status/:id", async (req, res) => {
   try {
     const { status } = req.body;
-
     const validStatuses = ["Pending", "Paid", "Unpaid", "Cancelled"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ message: "Invalid status value" });
-    }
+    if (!validStatuses.includes(status)) return res.status(400).json({ message: "Invalid status value" });
 
-    const updated = await Booking.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
+    const updated = await Booking.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    if (!updated) return res.status(404).json({ message: "Booking not found" });
 
-    if (!updated) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
-
-    res.json({
-      message: "Status updated successfully",
-      booking: updated,
-    });
+    res.json({ message: "Status updated successfully", booking: updated });
   } catch (error) {
     console.error("Status Update Error:", error);
     res.status(500).json({ message: "Failed to update status", error });
@@ -199,21 +153,13 @@ router.put("/booking/update-status/:id", async (req, res) => {
 router.get("/booking/verify/:ticketNumber", async (req, res) => {
   try {
     const ticketNumber = req.params.ticketNumber;
-
     const booking = await Booking.findOne({ ticketNumber }).populate("eventId");
 
     if (!booking) {
-      return res.status(404).json({
-        valid: false,
-        message: "Invalid ticket. No matching record found.",
-      });
+      return res.status(404).json({ valid: false, message: "Invalid ticket. No matching record found." });
     }
 
-    res.json({
-      valid: true,
-      message: "Ticket is valid",
-      booking,
-    });
+    res.json({ valid: true, message: "Ticket is valid", booking });
   } catch (error) {
     console.error("QR Verification Error:", error);
     res.status(500).json({ message: "Verification failed", error });
@@ -225,29 +171,73 @@ router.get("/booking/verify/:ticketNumber", async (req, res) => {
 ---------------------------------------------------- */
 router.post("/booking/send-email/:id", async (req, res) => {
   try {
-    const { subject, message, htmlContent } = req.body;
+    const booking = await Booking.findById(req.params.id).populate("eventId");
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
 
-    if (!htmlContent) {
-      return res.status(400).json({ message: "htmlContent is required" });
-    }
+    const { subject, message } = req.body;
 
-    const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
-
-    const verificationURL = `https://your-domain.com/verify-ticket/${booking.ticketNumber}`;
-
+    // Generate QR code using FRONTEND URL
+    const verificationURL = `${process.env.CLIENT_URI}/verify-ticket/${booking.ticketNumber}`;
     const qrCodeDataURL = await QRCode.toDataURL(verificationURL);
 
-    const finalHTML = htmlContent.replace("{{QR_CODE}}", qrCodeDataURL);
+    // Build complete email HTML template (same as your frontend template)
+    const emailHTML = `
+      <div style="font-family: Arial, Helvetica, sans-serif; background:#f6f6f6; padding:20px;">
+        <h3>Dear ${booking.firstName} ${booking.lastName},</h3>
+        <p>Your event ticket has been confirmed. Below is your E-Ticket card. This is your entry pass.</p>
 
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center">
+              <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden;">
+                <tr>
+                  <td style="background:#222831; color:#ffffff; padding:24px; text-align:center;">
+                    <h2 style="margin:0; font-size:22px;">🎟️ ${booking.eventId?.title || ""}</h2>
+                    <p style="margin:4px 0 0; opacity:0.8;">Entry Pass</p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding:20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e9e9e9; border-radius:6px;">
+                      <tr>
+                        <td style="padding:16px; width:65%; vertical-align:top;">
+                          <p><strong>Ticket No:</strong> ${booking.ticketNumber}</p>
+                          <p><strong>Name:</strong> ${booking.firstName} ${booking.lastName}</p>
+                          <p><strong>Category:</strong> ${booking.ticketType}</p>
+                          <p><strong>City:</strong> ${booking.cityName || ""}</p>
+                          <p><strong>Date:</strong> ${booking.eventId?.date || ""}</p>
+                          <p><strong>Time:</strong> ${booking.eventId?.eventTime || ""}</p>
+                          <p><strong>Location:</strong> ${booking.eventId?.address || ""}</p>
+                        </td>
+                        <td style="padding:16px; width:35%; text-align:center; vertical-align:middle;">
+                          <p style="margin-bottom:8px; font-size:12px; color:#666;">Scan QR to verify</p>
+                          <img src="${qrCodeDataURL}" alt="QR Code" style="width:140px; height:140px;" />
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="margin-top:16px; color:#666;">
+                      Please show this ticket at the entry gate. This ticket is valid for one person only.
+                    </p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="text-align:center; background:#f7f7f7; padding:14px; color:#777;">
+                    <small>Thank you for your purchase</small>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    // Send Email
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
     });
 
     await transporter.sendMail({
@@ -255,13 +245,10 @@ router.post("/booking/send-email/:id", async (req, res) => {
       to: booking.emailAddress,
       subject: subject || "Your Ticket",
       text: message || "Here is your ticket",
-      html: finalHTML,
+      html: emailHTML,
     });
 
-    res.json({
-      message: "Email sent successfully",
-      qrCode: qrCodeDataURL,
-    });
+    res.json({ message: "Email sent successfully", qrCode: qrCodeDataURL });
   } catch (error) {
     console.error("Email Error:", error);
     res.status(500).json({ message: "Email sending failed", error });
