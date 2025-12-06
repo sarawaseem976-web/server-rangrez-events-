@@ -174,67 +174,91 @@ router.post("/booking/send-email/:id", async (req, res) => {
     const booking = await Booking.findById(req.params.id).populate("eventId");
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
-    const { subject, message } = req.body;
+    const { subject } = req.body;
 
-    // Generate QR code using FRONTEND URL
+    // Generate QR code with safe settings
     const verificationURL = `${process.env.CLIENT_URI}/verify-ticket/${booking.ticketNumber}`;
-    const qrCodeDataURL = await QRCode.toDataURL(verificationURL);
+    const qrCodeDataURL = await QRCode.toDataURL(verificationURL, {
+      margin: 1,
+      scale: 6,
+    });
 
-    // Build complete email HTML template (same as your frontend template)
+    /* ----------------------------------------------------
+       EMAIL TEMPLATE (FULLY EMAIL-CLIENT SAFE)
+    ---------------------------------------------------- */
     const emailHTML = `
-      <div style="font-family: Arial, Helvetica, sans-serif; background:#f6f6f6; padding:20px;">
-        <h3>Dear ${booking.firstName} ${booking.lastName},</h3>
-        <p>Your event ticket has been confirmed. Below is your E-Ticket card. This is your entry pass.</p>
+<!DOCTYPE html>
+<html>
+  <body style="margin:0; padding:0; background:#f4f4f4; font-family:Arial, sans-serif;">
 
-        <table width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td align="center">
-              <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden;">
-                <tr>
-                  <td style="background:#222831; color:#ffffff; padding:24px; text-align:center;">
-                    <h2 style="margin:0; font-size:22px;">🎟️ ${booking.eventId?.title || ""}</h2>
-                    <p style="margin:4px 0 0; opacity:0.8;">Entry Pass</p>
-                  </td>
-                </tr>
+    <table width="100%" cellspacing="0" cellpadding="0" style="background:#f4f4f4; padding:20px 0;">
+      <tr>
+        <td align="center">
 
-                <tr>
-                  <td style="padding:20px;">
-                    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e9e9e9; border-radius:6px;">
-                      <tr>
-                        <td style="padding:16px; width:65%; vertical-align:top;">
-                          <p><strong>Ticket No:</strong> ${booking.ticketNumber}</p>
-                          <p><strong>Name:</strong> ${booking.firstName} ${booking.lastName}</p>
-                          <p><strong>Category:</strong> ${booking.ticketType}</p>
-                          <p><strong>City:</strong> ${booking.cityName || ""}</p>
-                          <p><strong>Date:</strong> ${booking.eventId?.date || ""}</p>
-                          <p><strong>Time:</strong> ${booking.eventId?.eventTime || ""}</p>
-                          <p><strong>Location:</strong> ${booking.eventId?.address || ""}</p>
-                        </td>
-                        <td style="padding:16px; width:35%; text-align:center; vertical-align:middle;">
-                          <p style="margin-bottom:8px; font-size:12px; color:#666;">Scan QR to verify</p>
-                          <img src="${qrCodeDataURL}" alt="QR Code" style="width:140px; height:140px;" />
-                        </td>
-                      </tr>
-                    </table>
-                    <p style="margin-top:16px; color:#666;">
-                      Please show this ticket at the entry gate. This ticket is valid for one person only.
-                    </p>
-                  </td>
-                </tr>
+          <table width="600" cellspacing="0" cellpadding="0" style="background:#ffffff; border-radius:6px; overflow:hidden;">
 
-                <tr>
-                  <td style="text-align:center; background:#f7f7f7; padding:14px; color:#777;">
-                    <small>Thank you for your purchase</small>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </div>
-    `;
+            <tr>
+              <td align="center" style="background:#222831; padding:24px;">
+                <h2 style="color:#ffffff; margin:0; font-size:22px;">${booking.eventId?.title}</h2>
+                <p style="color:#cccccc; margin:6px 0 0; font-size:14px;">Your Entry Pass</p>
+              </td>
+            </tr>
 
-    // Send Email
+            <tr>
+              <td style="padding:20px;">
+
+                <table width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e0e0e0; border-radius:6px;">
+                  <tr valign="top">
+                  
+                    <td style="padding:16px; width:65%; font-size:14px; line-height:20px;">
+
+                      <p><strong>Ticket No:</strong> ${booking.ticketNumber}</p>
+                      <p><strong>Name:</strong> ${booking.firstName} ${booking.lastName}</p>
+                      <p><strong>Category:</strong> ${booking.ticketType}</p>
+                      <p><strong>City:</strong> ${booking.cityName}</p>
+                      <p><strong>Date:</strong> ${booking.eventId?.date}</p>
+                      <p><strong>Time:</strong> ${booking.eventId?.eventTime}</p>
+                      <p><strong>Location:</strong> ${booking.eventId?.address}</p>
+
+                    </td>
+
+                    <td align="center" style="padding:16px; width:35%;">
+                      <p style="font-size:11px; margin:0 0 6px; color:#666;">Scan QR to verify</p>
+
+                      <img src="${qrCodeDataURL}" 
+                        alt="QR Code"
+                        width="140"
+                        height="140"
+                        style="display:block; border:0; outline:none;">
+                    </td>
+
+                  </tr>
+                </table>
+
+                <p style="margin-top:16px; font-size:13px; color:#666;">
+                  Please show this ticket at the entry gate. Valid for one person only.
+                </p>
+
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="background:#f7f7f7; padding:12px;">
+                <p style="margin:0; font-size:12px; color:#777;">Thank you for your purchase!</p>
+              </td>
+            </tr>
+
+          </table>
+
+        </td>
+      </tr>
+    </table>
+
+  </body>
+</html>
+`;
+
+    // Send Email (NO text version — prevents QR from being stripped)
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
@@ -244,11 +268,11 @@ router.post("/booking/send-email/:id", async (req, res) => {
       from: `"Event Ticket" <${process.env.EMAIL_USER}>`,
       to: booking.emailAddress,
       subject: subject || "Your Ticket",
-      text: message || "Here is your ticket",
       html: emailHTML,
     });
 
     res.json({ message: "Email sent successfully", qrCode: qrCodeDataURL });
+
   } catch (error) {
     console.error("Email Error:", error);
     res.status(500).json({ message: "Email sending failed", error });
